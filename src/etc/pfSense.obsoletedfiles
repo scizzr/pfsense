@@ -7,6 +7,7 @@
 /dist
 /etc/ascii-art/pfsense-logo-small.txt
 /etc/auth.conf
+/etc/ca_countries
 /etc/current-supfile
 /etc/defaults/pccard.conf
 /etc/fbtab
@@ -29,8 +30,10 @@
 /etc/inc/m0n0
 /etc/inc/ntlm_sasl_client.inc
 /etc/inc/plain_sasl_client.inc
+/etc/inc/radius.inc
 /etc/inc/regdomain.inc
 /etc/inc/sasl.inc
+/etc/inc/simplepie
 /etc/inc/smtp.inc
 /etc/inc/sysctl.inc
 /etc/inc/uuid.php
@@ -79,6 +82,8 @@
 /etc/ping_hosts.sh
 /etc/portsnap.conf
 /etc/rc.cdrom
+/etc/rc.conf_mount_ro
+/etc/rc.conf_mount_rw
 /etc/rc.create_full_backup
 /etc/rc.d/amd
 /etc/rc.d/atm1
@@ -584,6 +589,8 @@
 /usr/local/bin/spawn-fcgi
 /usr/local/bin/tickadj
 /usr/local/bin/verifysig
+/usr/local/captiveportal/radius_accounting.inc
+/usr/local/captiveportal/radius_authentication.inc
 /usr/local/etc/pkg.conf
 /usr/local/info
 /usr/local/lib/engines
@@ -892,6 +899,7 @@
 /usr/local/www/classes/maintable.inc
 /usr/local/www/code-syntax-highlighter
 /usr/local/www/copynotice.old
+/usr/local/www/copynotice.inc
 /usr/local/www/copyright-master.txt
 /usr/local/www/csrf/csrf-secret.php
 /usr/local/www/css/table.css
@@ -994,6 +1002,7 @@
 /usr/local/www/ip_helper.js
 /usr/local/www/javascript
 /usr/local/www/jquery
+/usr/local/www/license.php
 /usr/local/www/load_balancer_relay_action.php
 /usr/local/www/load_balancer_relay_action_edit.php
 /usr/local/www/load_balancer_relay_protocol.php

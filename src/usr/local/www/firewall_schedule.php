@@ -3,7 +3,7 @@
  * firewall_schedule.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2019 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally based on m0n0wall (http://m0n0.ch/wall)
@@ -41,10 +41,7 @@ require_once("shaper.inc");
 
 $pgtitle = array(gettext("Firewall"), gettext("Schedules"));
 
-if (!is_array($config['schedules']['schedule'])) {
-	$config['schedules']['schedule'] = array();
-}
-
+init_config_arr(array('schedules', 'schedule'));
 $a_schedules = &$config['schedules']['schedule'];
 
 if ($_POST['act'] == "del") {
@@ -209,7 +206,7 @@ foreach ($a_schedules as $schedule):
 			}
 
 			$timeFriendly = $starttime . "-" . $stoptime;
-			$description = $timerange['rangedescr'];
+			$description = htmlspecialchars($timerange['rangedescr']);
 
 			print(($first ? '':'<br />') . $dayFriendly . ' / ' . $timeFriendly . ' / ' . $description);
 		}

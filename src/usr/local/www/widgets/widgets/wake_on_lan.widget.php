@@ -3,7 +3,7 @@
  * wake_on_lan.widget.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2017 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2019 Rubicon Communications, LLC (Netgate)
  * Copyright (c)  2010 Yehuda Katz
  * All rights reserved.
  *
@@ -20,12 +20,10 @@
  * limitations under the License.
  */
 
-$nocsrf = true;
-
 require_once("guiconfig.inc");
 require_once("/usr/local/www/widgets/include/wake_on_lan.inc");
 
-if (is_array($config['wol']['wolentry'])) {
+if (isset($config['wol']['wolentry']) && is_array($config['wol']['wolentry'])) {
 	$wolcomputers = $config['wol']['wolentry'];
 } else {
 	$wolcomputers = array();

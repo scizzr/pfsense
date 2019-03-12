@@ -3,7 +3,7 @@
  * vpn_ipsec_mobile.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2019 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2008 Shrew Soft Inc
  * All rights reserved.
  *
@@ -37,16 +37,10 @@ require_once("ipsec.inc");
 require_once("vpn.inc");
 require_once("filter.inc");
 
-if (!is_array($config['ipsec']['phase1'])) {
-	$config['ipsec']['phase1'] = array();
-}
-
+init_config_arr(array('ipsec', 'phase1'));
 $a_phase1 = &$config['ipsec']['phase1'];
 
-if (!is_array($config['ipsec']['client'])) {
-	$config['ipsec']['client'] = array();
-}
-
+init_config_arr(array('ipsec', 'client'));
 $a_client = &$config['ipsec']['client'];
 
 if (count($a_client)) {
@@ -442,8 +436,8 @@ $section = new Form_Section('Extended Authentication (Xauth)');
 
 $authServers = array();
 
-foreach (auth_get_authserver_list() as $authServer) {
-	$authServers[$authServer['name']] = $authServer['name']; // Value == name
+foreach (auth_get_authserver_list() as $key => $authServer) {
+	$authServers[$key] = $authServer['name']; // Value == name
 }
 
 $section->addInput(new Form_Select(
@@ -672,7 +666,7 @@ $group->add(new Form_Select(
 	'Group',
 	$pconfig['pfs_group'],
 	$p2_pfskeygroups
-))->setWidth(2);
+))->setHelp('Note: Groups 1, 2, 22, 23, and 24 provide weak security and should be avoided.');
 
 $section->add($group);
 

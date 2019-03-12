@@ -31,11 +31,11 @@
 ##|-PRIV
 
 require_once("guiconfig.inc");
+require_once("interfaces_fast.inc");
 
-if (!is_array($config['vlans']['vlan'])) {
-	$config['vlans']['vlan'] = array();
-}
+global $profile;
 
+init_config_arr(array('vlans', 'vlan'));
 $a_vlans = &$config['vlans']['vlan'];
 
 if ($_POST['act'] == "del") {
@@ -101,23 +101,24 @@ display_top_tabs($tab_array);
 					<tbody>
 <?php
 	$i = 0;
+	$gettext_array = array('edit'=>gettext('Edit VLAN'),'del'=>gettext('Delete VLAN'));
+	$ifaces = convert_real_interface_to_friendly_interface_name_fast(array());
 	foreach ($a_vlans as $vlan) {
 ?>
 						<tr>
 							<td>
 <?php
 	printf("%s", htmlspecialchars($vlan['if']));
-	$iface = convert_real_interface_to_friendly_interface_name($vlan['if']);
-	if (isset($iface) && strlen($iface) > 0)
-		printf(" (%s)", htmlspecialchars($iface));
+	if (isset($ifaces[$vlan['if']]) && strlen($ifaces[$vlan['if']]) > 0)
+		printf(" (%s)", htmlspecialchars($ifaces[$vlan['if']]));
 ?>
 							</td>
 							<td><?=htmlspecialchars($vlan['tag']);?></td>
 							<td><?=htmlspecialchars($vlan['pcp']);?></td>
 							<td><?=htmlspecialchars($vlan['descr']);?></td>
 							<td>
-								<a class="fa fa-pencil"	title="<?=gettext('Edit VLAN')?>"	role="button" href="interfaces_vlan_edit.php?id=<?=$i?>" ></a>
-								<a class="fa fa-trash no-confirm"	title="<?=gettext('Delete VLAN')?>"	role="button" id="del-<?=$i?>"></a>
+								<a class="fa fa-pencil"	title="<?=$gettext_array['edit']?>"	role="button" href="interfaces_vlan_edit.php?id=<?=$i?>" ></a>
+								<a class="fa fa-trash no-confirm"	title="<?=$gettext_array['del']?>"	role="button" id="del-<?=$i?>"></a>
 							</td>
 						</tr>
 <?php

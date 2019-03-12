@@ -4,7 +4,7 @@
  *
  * part of pfSense (https://www.pfsense.org)
  * Copyright (c) 2013 Stanley P. Miller \ stan-qaz
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2019 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,7 +20,6 @@
  * limitations under the License.
  */
 
-$nocsrf = true;
 global $dyndns_split_domain_types;
 
 require_once("guiconfig.inc");
@@ -31,36 +30,33 @@ require_once("/usr/local/www/widgets/include/dyn_dns_status.inc");
 // Constructs a unique key that will identify a Dynamic DNS entry in the filter list.
 if (!function_exists('get_dyndnsent_key')) {
 	function get_dyndnsent_key($dyndns) {
-		return $dyndns['id'];
+		return isset($dyndns['id']) ? $dyndns['id'] : null;
 	}
 }
 
 if (!function_exists('get_dyndns_hostname_text')) {
 	function get_dyndns_hostname_text($dyndns) {
 		global $dyndns_split_domain_types;
-		if (in_array($dyndns['type'], $dyndns_split_domain_types)) {
+		if (isset($dyndns['type']) && is_array($dyndns['type']) && in_array($dyndns['type'], $dyndns_split_domain_types)) {
 			return $dyndns['host'] . "." . $dyndns['domainname'];
 		}
 
-		return $dyndns['host'];
+		return isset($dyndns['host']) ? $dyndns['host'] : null;
 	}
 }
 
-if (!is_array($config['dyndnses']['dyndns'])) {
-	$config['dyndnses']['dyndns'] = array();
-}
-
+init_config_arr(array('dyndnses', 'dyndns'));
 $a_dyndns = $config['dyndnses']['dyndns'];
 
-if (!is_array($config['dnsupdates']['dnsupdate'])) {
-	$config['dnsupdates']['dnsupdate'] = array();
-}
-
+init_config_arr(array('dnsupdates', 'dnsupdate'));
 $a_rfc2136 = $config['dnsupdates']['dnsupdate'];
 
 $all_dyndns = array_merge($a_dyndns, $a_rfc2136);
 
 array_walk($all_dyndns, function(&$dyndns) {
+	if (empty($dyndns)) {
+		return;
+	}
 	if (empty($dyndns['type'])) {
 		/* RFC2136, add some dummy values */
 		$dyndns['type'] = '_rfc2136_';
@@ -183,7 +179,7 @@ if (!function_exists('get_dyndns_service_text')) {
 	</thead>
 	<tbody>
 	<?php $dyndnsid = -1; $rfc2136id = -1; $rowid = -1; foreach ($all_dyndns as $dyndns):
-		if ($dyndns['type'] == '_rfc2136_') {
+		if (isset($dyndns['type']) && ($dyndns['type'] == '_rfc2136_')) {
 			$dblclick_location = 'services_rfc2136_edit.php';
 			$rfc2136id++;
 			$locationid = $rfc2136id;
@@ -201,18 +197,18 @@ if (!function_exists('get_dyndns_service_text')) {
 
 	?>
 	<tr ondblclick="document.location='<?=$dblclick_location;?>?id=<?=$locationid;?>'"<?=!isset($dyndns['enable'])?' class="disabled"':''?>>
-		<td>
-		<?=get_dyndns_interface_text($dyndns['interface']);?>
-		</td>
-		<td>
-		<?=htmlspecialchars(get_dyndns_service_text($dyndns['type']));?>
-		</td>
-		<td>
-		<?=insert_word_breaks_in_domain_name(htmlspecialchars(get_dyndns_hostname_text($dyndns)));?>
-		</td>
-		<td>
-		<div id="dyndnsstatus<?= $rowid;?>"><?= gettext("Checking ...");?></div>
-		</td>
+		<td><?=get_dyndns_interface_text($dyndns['interface']);?></td>
+<?php
+		if (((get_dyndns_service_text($dyndns['type']) == 'Custom') ||
+			 (get_dyndns_service_text($dyndns['type']) == 'Custom (v6)')) &&
+			 (get_dyndns_service_text($dyndns['descr']) != '')):
+?>
+		<td><?=htmlspecialchars(get_dyndns_service_text($dyndns['descr']));?></td>
+		<?php else:?>
+		<td><?=htmlspecialchars(get_dyndns_service_text($dyndns['type']));?></td>
+		<?php endif;?>
+		<td><?=insert_word_breaks_in_domain_name(htmlspecialchars(get_dyndns_hostname_text($dyndns)));?></td>
+		<td><div id="dyndnsstatus<?= $rowid;?>"><?= gettext("Checking ...");?></div></td>
 	</tr>
 	<?php endforeach;?>
 	<?php if ($rowid == -1):?>
@@ -250,7 +246,15 @@ if (!function_exists('get_dyndns_service_text')) {
 ?>
 						<tr>
 							<td><?=get_dyndns_interface_text($dyndns['interface'])?></td>
+<?php
+							if (((get_dyndns_service_text($dyndns['type']) == 'Custom') ||
+							     (get_dyndns_service_text($dyndns['type']) == 'Custom (v6)')) &&
+								 (get_dyndns_service_text($dyndns['descr']) != '')):
+?>
+							<td><?=htmlspecialchars(get_dyndns_service_text($dyndns['descr']));?></td>
+							<?php else:?>
 							<td><?=get_dyndns_service_text($dyndns['type'])?></td>
+							<?php endif;?>
 							<td><?=get_dyndns_hostname_text($dyndns)?></td>
 							<td class="col-sm-2"><input id="show[]" name ="show[]" value="<?=get_dyndnsent_key($dyndns)?>" type="checkbox" <?=(!in_array(get_dyndnsent_key($dyndns), $skipdyndns) ? 'checked':'')?>></td>
 						</tr>

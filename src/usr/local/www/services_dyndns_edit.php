@@ -3,7 +3,7 @@
  * services_dyndns_edit.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2019 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -41,11 +41,9 @@ function is_dyndns_username($uname) {
 
 require_once("guiconfig.inc");
 
-if (!is_array($config['dyndnses']['dyndns'])) {
-	$config['dyndnses']['dyndns'] = array();
-}
-
+init_config_arr(array('dyndnses', 'dyndns'));
 $a_dyndns = &$config['dyndnses']['dyndns'];
+
 $id = $_REQUEST['id'];
 
 if (isset($id) && isset($a_dyndns[$id])) {
@@ -75,7 +73,7 @@ if ($_POST['save'] || $_POST['force']) {
 	unset($input_errors);
 	$pconfig = $_POST;
 
-	if (($pconfig['type'] == "freedns" || $pconfig['type'] == "namecheap") && $_POST['username'] == "") {
+	if (($pconfig['type'] == "freedns" || $pconfig['type'] == "freedns-v6" || $pconfig['type'] == "namecheap" || $pconfig['type'] == "digitalocean") && $_POST['username'] == "") {
 		$_POST['username'] = "none";
 	}
 
@@ -112,6 +110,10 @@ if ($_POST['save'] || $_POST['force']) {
 		if ($pconfig['type'] == "namecheap" && ($_POST['host'] == '*.' || $_POST['host'] == '*' || $_POST['host'] == '@.' || $_POST['host'] == '@')) {
 			$host_to_check = $_POST['domainname'];
 		} elseif ((($pconfig['type'] == "cloudflare") || ($pconfig['type'] == "cloudflare-v6")) && ($_POST['host'] == '@.' || $_POST['host'] == '@')) {
+			$host_to_check = $_POST['domainname'];
+		} elseif ((($pconfig['type'] == "godaddy") || ($pconfig['type'] == "godaddy-v6")) && ($_POST['host'] == '@.' || $_POST['host'] == '@')) {
+			$host_to_check = $_POST['domainname'];
+		} elseif (($pconfig['type'] == "digitalocean") && ($_POST['host'] == '@.' || $_POST['host'] == '@')) {
 			$host_to_check = $_POST['domainname'];
 		} else {
 			$host_to_check = $_POST['host'];
@@ -299,7 +301,8 @@ $group->setHelp('Enter the complete fully qualified domain name. Example: myhost
 			'he.net tunnelbroker: Enter the tunnel ID.%1$s' .
 			'GleSYS: Enter the record ID.%1$s' .
 			'DNSimple: Enter only the domain name.%1$s' .
-			'Namecheap, Cloudflare, GratisDNS, Hover, ClouDNS: Enter the hostname and the domain separately, with the domain being the domain or subdomain zone being handled by the provider.', '<br />');
+			'Namecheap, Cloudflare, GratisDNS, Hover, ClouDNS, GoDaddy: Enter the hostname and the domain separately, with the domain being the domain or subdomain zone being handled by the provider.%1$s' .
+			'Cloudflare and DigitalOcean: Enter @ as the hostname to indicate an empty field.', '<br />');
 
 $section->add($group);
 
@@ -320,12 +323,12 @@ $section->addInput(new Form_Checkbox(
 
 $section->addInput(new Form_Checkbox(
 	'proxied',
-	'CloudFlare Proxy',
+	'Cloudflare Proxy',
 	'Enable Proxy',
 	$pconfig['proxied']
-))->setHelp('Note: This enables CloudFlares Virtual DNS proxy.  When Enabled it will route all traffic '.
+))->setHelp('Note: This enables Cloudflare Virtual DNS proxy.  When Enabled it will route all traffic '.
 			'through their servers. By Default this is disabled and your Real IP is exposed.'.
-			'More info: %s', '<a href="https://blog.cloudflare.com/announcing-virtual-dns-ddos-mitigation-and-global-distribution-for-dns-traffic/" target="_blank">CloudFlare Blog</a>');
+			'More info: %s', '<a href="https://blog.cloudflare.com/announcing-virtual-dns-ddos-mitigation-and-global-distribution-for-dns-traffic/" target="_blank">Cloudflare Blog</a>');
 
 $section->addInput(new Form_Checkbox(
 	'verboselog',
@@ -353,11 +356,14 @@ $section->addInput(new Form_Input(
 	'Username',
 	'text',
 	$pconfig['username']
-))->setHelp('Username is required for all types except Namecheap, FreeDNS and Custom Entries.%1$s' .
+))->setHelp('Username is required for all types except Namecheap, FreeDNS , FreeDNS-v6, DigitalOcean and Custom Entries.%1$s' .
+	                'Azure: Enter your Azure AD application ID%1$s' .
 			'DNS Made Easy: Dynamic DNS ID%1$s' .
+			'DNSimple: User account ID (In the URL after the \'/a/\')%1$s' .
 			'Route 53: Enter the Access Key ID.%1$s' .
 			'GleSYS: Enter the API user.%1$s' .
 			'Dreamhost: Enter a value to appear in the DNS record comment.%1$s' .
+			'Godaddy:: Enter the API key.%1$s' .
 			'For Custom Entries, Username and Password represent HTTP Authentication username and passwords.', '<br />');
 
 $section->addPassword(new Form_Input(
@@ -366,10 +372,14 @@ $section->addPassword(new Form_Input(
 	'password',
 	$pconfig['password']
 ))->setHelp('FreeDNS (freedns.afraid.org): Enter the "Authentication Token" provided by FreeDNS.%1$s' .
+	                'Azure: client secret of the AD application%1$s' .
 			'DNS Made Easy: Dynamic DNS Password%1$s' .
+			'DNSimple: User account token%1$s' .
+			'DigitalOcean: Enter API token%1$s' .
 			'Route 53: Enter the Secret Access Key.%1$s' .
 			'GleSYS: Enter the API key.%1$s' .
 			'Dreamhost: Enter the API Key.%1$s' .
+			'GoDaddy: Enter the API secret.%1$s' .
 			'DNSimple: Enter the API token.%1$s' .
 			'Cloudflare: Enter the Global API Key.', '<br />');
 
@@ -379,6 +389,7 @@ $section->addInput(new Form_Input(
 	'text',
 	$pconfig['zoneid']
 ))->setHelp('Route53: Enter AWS Zone ID.%1$s' .
+	                'Azure: Enter the resource id of the of the DNS Zone%1$s' .
 			'DNSimple: Enter the Record ID of record to update.', '<br />');
 
 $section->addInput(new Form_Input(
@@ -409,7 +420,8 @@ $section->addInput(new Form_Input(
 	'Description',
 	'text',
 	$pconfig['descr']
-))->setHelp('A description may be entered here for administrative reference (not parsed).');
+))->setHelp('A description may be entered here for administrative reference (not parsed).%1$s' .
+			'This field will be used in the Dynamic DNS Status Widget for Custom services.', '<br />');
 
 if (isset($id) && $a_dyndns[$id]) {
 	$section->addInput(new Form_Input(
@@ -457,6 +469,7 @@ events.push(function() {
 				break;
 
 			case "dnsimple":
+			case "route53-v6":
 			case "route53":
 				hideGroupInput('domainname', true);
 				hideInput('resultmatch', true);
@@ -530,6 +543,51 @@ events.push(function() {
 				hideCheckbox('proxied', false);
 				hideInput('zoneid', true);
 				hideInput('ttl', true);
+				break;
+			case "digitalocean":
+				hideGroupInput('domainname', false);
+				hideInput('resultmatch', true);
+				hideInput('updateurl', true);
+				hideInput('requestif', true);
+				hideCheckbox('curl_ipresolve_v4', true);
+				hideCheckbox('curl_ssl_verifypeer', true);
+				hideInput('username', true);
+				hideInput('host', false);
+				hideInput('mx', true);
+				hideCheckbox('wildcard', true);
+				hideCheckbox('proxied', true);
+				hideInput('zoneid', true);
+				hideInput('ttl', false);
+				break;
+			case "godaddy":
+			case "godaddy-v6":
+				hideGroupInput('domainname', false);
+				hideInput('resultmatch', true);
+				hideInput('updateurl', true);
+				hideInput('requestif', true);
+				hideCheckbox('curl_ipresolve_v4', true);
+				hideCheckbox('curl_ssl_verifypeer', true);
+				hideInput('host', false);
+				hideInput('mx', true);
+				hideCheckbox('wildcard', true);
+				hideCheckbox('proxied', true);
+				hideInput('zoneid', true);
+				hideInput('ttl', false);
+				break;
+			case "azurev6":
+			case "azure":
+				hideGroupInput('domainname', true);
+				hideInput('resultmatch', true);
+				hideInput('updateurl', true);
+				hideInput('requestif', true);
+				hideCheckbox('curl_ipresolve_v4', true);
+				hideCheckbox('curl_ssl_verifypeer', true);
+				hideInput('host', false);
+				hideInput('mx', true);
+				hideCheckbox('wildcard', true);
+				hideCheckbox('proxied', true);
+				hideInput('zoneid', false);
+				hideInput('ttl', false);
 				break;
 			default:
 				hideGroupInput('domainname', true);

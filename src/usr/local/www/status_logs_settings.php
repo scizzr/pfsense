@@ -3,7 +3,7 @@
  * status_logs_settings.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2019 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally based on m0n0wall (http://m0n0.ch/wall)
@@ -103,9 +103,12 @@ if ($_POST['resetlogs'] == gettext("Reset Log Files")) {
 	if (isset($_POST['logfilesize']) && (strlen($_POST['logfilesize']) > 0)) {
 		if (!is_numeric($_POST['logfilesize']) || ($_POST['logfilesize'] < 100000)) {
 			$input_errors[] = gettext("Log file size must be numeric and greater than or equal to 100000.");
+		} elseif ($_POST['logfilesize'] >= (2**32)/2) {
+			$input_errors[] = gettext("Log file size is too large. Set a smaller value.");
 		}
 	}
 	if (!$input_errors) {
+		init_config_arr(array('syslog'));
 		$config['syslog']['reverse'] = $_POST['reverse'] ? true : false;
 		$config['syslog']['nentries'] = (int)$_POST['nentries'];
 		$pconfig['nentries'] = $config['syslog']['nentries'];
@@ -350,7 +353,7 @@ $section->addInput(new Form_Select(
 $section->addInput(new Form_Select(
 	'ipproto',
 	'IP Protocol',
-	$ipproto,
+	$pconfig['ipproto'],
 	array('ipv4' => 'IPv4', 'ipv6' => 'IPv6')
 ))->setHelp('This option is only used when a non-default address is chosen as the source above. ' .
 			'This option only expresses a preference; If an IP address of the selected type is not found on the chosen interface, the other type will be tried.');

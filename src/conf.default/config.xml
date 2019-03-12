@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <pfsense>
-	<version>15.4</version>
+	<version>18.0</version>
 	<lastchange/>
 	<system>
 		<optimization>normal</optimization>
@@ -43,6 +43,7 @@
 		<disablesegmentationoffloading/>
 		<disablelargereceiveoffloading/>
 		<ipv6allow/>
+		<maximumtableentries>400000</maximumtableentries>
 		<powerd_ac_mode>hadp</powerd_ac_mode>
 		<powerd_battery_mode>hadp</powerd_battery_mode>
 		<powerd_normal_mode>hadp</powerd_normal_mode>
@@ -177,7 +178,7 @@
 			<month>*</month>
 			<wday>*</wday>
 			<who>root</who>
-			<command>/usr/bin/nice -n20 /usr/local/sbin/expiretable -v -t 3600 sshlockout</command>
+			<command>/usr/bin/nice -n20 /usr/local/sbin/expiretable -v -t 3600 sshguard</command>
 		</item>
 		<item>
 			<minute>*/60</minute>

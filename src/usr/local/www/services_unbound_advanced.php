@@ -3,7 +3,7 @@
  * services_unbound_advanced.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2019 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2014 Warren Baker (warren@pfsense.org)
  * All rights reserved.
  *
@@ -40,6 +40,14 @@ if (isset($config['unbound']['hideidentity'])) {
 
 if (isset($config['unbound']['hideversion'])) {
 	$pconfig['hideversion'] = true;
+}
+
+if (isset($config['unbound']['qname-minimisation'])) {
+	$pconfig['qname-minimisation'] = true;
+}
+
+if (isset($config['unbound']['qname-minimisation-strict'])) {
+	$pconfig['qname-minimisation-strict'] = true;
 }
 
 if (isset($config['unbound']['prefetch'])) {
@@ -145,6 +153,16 @@ if ($_POST) {
 			} else {
 				unset($config['unbound']['hideversion']);
 			}
+			if (isset($_POST['qname-minimisation'])) {
+				$config['unbound']['qname-minimisation'] = true;
+			} else {
+				unset($config['unbound']['qname-minimisation']);
+			}
+			if (isset($_POST['qname-minimisation-strict'])) {
+				$config['unbound']['qname-minimisation-strict'] = true;
+			} else {
+				unset($config['unbound']['qname-minimisation-strict']);
+			}
 			if (isset($_POST['prefetch'])) {
 				$config['unbound']['prefetch'] = true;
 			} else {
@@ -228,7 +246,7 @@ display_top_tabs($tab_array, true);
 
 $form = new Form();
 
-$section = new Form_Section('Advanced Resolver Options');
+$section = new Form_Section('Advanced Privacy Options');
 
 $section->addInput(new Form_Checkbox(
 	'hideidentity',
@@ -243,6 +261,24 @@ $section->addInput(new Form_Checkbox(
 	'version.server and version.bind queries are refused',
 	$pconfig['hideversion']
 ));
+
+$section->addInput(new Form_Checkbox(
+	'qname-minimisation',
+	'Query Name Minimization',
+	'Send minimum amount of QNAME/QTYPE information to upstream servers to enhance privacy',
+	$pconfig['qname-minimisation']
+))->setHelp('Only send minimum required labels of the QNAME and set QTYPE to A when possible. Best effort approach; full QNAME and original QTYPE will be sent when upstream replies with a RCODE other than NOERROR, except when receiving NXDOMAIN from a DNSSEC signed zone. Default is off.%1$s Refer to %2$sRFC 7816%3$s for in-depth information on Query Name Minimization.', '<br/>', '<a href="https://tools.ietf.org/html/rfc7816">', '</a>');
+
+$section->addInput(new Form_Checkbox(
+	'qname-minimisation-strict',
+	'Strict Query Name Minimization',
+	'Do not fall-back to sending full QNAME to potentially broken DNS servers',
+	$pconfig['qname-minimisation-strict']
+))->setHelp('QNAME minimization in strict mode. %1$sA significant number of domains will fail to resolve when this option in enabled%2$s. Only use if you know what you are doing. This option only has effect when Query Name Minimization is enabled. Default is off.', '<b>', '</b>');
+
+$form->add($section);
+
+$section = new Form_Section('Advanced Resolver Options');
 
 $section->addInput(new Form_Checkbox(
 	'prefetch',
@@ -359,13 +395,24 @@ $section->addInput(new Form_Select(
 			'and a warning is printed to the log file. This defensive action is to clear the RRSet and message caches, hopefully flushing away any poison. ' .
 			'The default is disabled, but if enabled a value of 10 million is suggested.');
 
-$lvl = gettext("level");
+$lvl_word = gettext('Level %s');
+$lvl_text = array(
+	'0' => 'No logging',
+	'1' => 'Basic operational information',
+	'2' => 'Detailed operational information',
+	'3' => 'Query level information',
+	'4' => 'Algorithm level information',
+	'5' => 'Client identification for cache misses'
+);
+foreach ($lvl_text as $k => & $v) {
+	$v = sprintf($lvl_word,$k) . ': ' . gettext($v);
+}
 $section->addInput(new Form_Select(
 	'log_verbosity',
 	'Log Level',
 	$pconfig['log_verbosity'],
-	array_combine(array("0", "1", "2", "3", "4", "5"), array($lvl + " 0", $lvl + " 1", $lvl + " 2", $lvl + " 3", $lvl + " 4", $lvl + " 5"))
-))->setHelp('Select the log verbosity.');
+	$lvl_text
+))->setHelp('Select the level of detail to be logged. Each level also includes the information from previous levels. The default is basic operational information (level 1)');
 
 $section->addInput(new Form_Checkbox(
 	'disable_auto_added_access_control',

@@ -3,7 +3,7 @@
  * services_status.widget.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2019 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2007 Sam Wenham
  * All rights reserved.
  *
@@ -20,8 +20,6 @@
  * limitations under the License.
  */
 
-$nocsrf = true;
-
 require_once("guiconfig.inc");
 require_once("captiveportal.inc");
 require_once("service-utils.inc");
@@ -34,6 +32,9 @@ $services = get_services();
 $numsvcs = count($services);
 
 for ($idx=0; $idx<$numsvcs; $idx++) {
+	if (!is_array($services[$idx])) {
+		$services[$idx] = array();
+	}
 	$services[$idx]['dispname'] = $services[$idx]['name'];
 }
 

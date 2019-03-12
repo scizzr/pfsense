@@ -3,7 +3,7 @@
  * services_dhcp.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2019 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally based on m0n0wall (http://m0n0.ch/wall)
@@ -41,17 +41,6 @@ if (!$g['services_dhcp_server_enable']) {
 }
 
 $if = $_REQUEST['if'];
-
-/* if OLSRD is enabled, allow WAN to house DHCP. */
-if ($config['installedpackages']['olsrd']) {
-	foreach ($config['installedpackages']['olsrd']['config'] as $olsrd) {
-		if ($olsrd['enable']) {
-			$is_olsr_enabled = true;
-			break;
-		}
-	}
-}
-
 $iflist = get_configured_interface_with_descr();
 
 /* set the starting interface */
@@ -118,10 +107,7 @@ if (is_array($config['dhcpd'][$if])) {
 		exit;
 	}
 
-	if (!is_array($config['dhcpd'][$if]['pool'])) {
-		$config['dhcpd'][$if]['pool'] = array();
-	}
-
+	init_config_arr(array('dhcpd', $if, 'pool'));
 	$a_pools = &$config['dhcpd'][$if]['pool'];
 
 	if (is_numeric($pool) && $a_pools[$pool]) {
@@ -132,10 +118,7 @@ if (is_array($config['dhcpd'][$if])) {
 		$dhcpdconf = &$config['dhcpd'][$if];
 	}
 
-	if (!is_array($config['dhcpd'][$if]['staticmap'])) {
-		$dhcpdconf['staticmap'] = array();
-	}
-
+	init_config_arr(array('dhcpd', $if, 'staticmap'));
 	$a_maps = &$config['dhcpd'][$if]['staticmap'];
 }
 
@@ -183,6 +166,7 @@ if (is_array($dhcpdconf)) {
 	$pconfig['ddnsdomain'] = $dhcpdconf['ddnsdomain'];
 	$pconfig['ddnsdomainprimary'] = $dhcpdconf['ddnsdomainprimary'];
 	$pconfig['ddnsdomainkeyname'] = $dhcpdconf['ddnsdomainkeyname'];
+	$pconfig['ddnsdomainkeyalgorithm'] = $dhcpdconf['ddnsdomainkeyalgorithm'];
 	$pconfig['ddnsdomainkey'] = $dhcpdconf['ddnsdomainkey'];
 	$pconfig['ddnsupdate'] = isset($dhcpdconf['ddnsupdate']);
 	$pconfig['ddnsforcehostname'] = isset($dhcpdconf['ddnsforcehostname']);
@@ -200,6 +184,7 @@ if (is_array($dhcpdconf)) {
 	$pconfig['netmask'] = $dhcpdconf['netmask'];
 	$pconfig['numberoptions'] = $dhcpdconf['numberoptions'];
 	$pconfig['statsgraph'] = $dhcpdconf['statsgraph'];
+	$pconfig['ddnsclientupdates'] = $dhcpdconf['ddnsclientupdates'];
 }
 
 $ifcfgip = $config['interfaces'][$if]['ipaddr'];
@@ -230,6 +215,10 @@ if (isset($_POST['save'])) {
 	$numberoptions = array();
 	for ($x = 0; $x < 99; $x++) {
 		if (isset($_POST["number{$x}"]) && ctype_digit($_POST["number{$x}"])) {
+			if ($_POST["number{$x}"] < 1 || $_POST["number{$x}"] > 254) {
+				$input_errors[] = gettext("The DHCP option must be a number between 1 and 254.");
+				continue;
+			}
 			$numbervalue = array();
 			$numbervalue['number'] = htmlspecialchars($_POST["number{$x}"]);
 			$numbervalue['type'] = htmlspecialchars($_POST["itemtype{$x}"]);
@@ -313,15 +302,14 @@ if (isset($_POST['save'])) {
 	if ($_POST['maxtime'] && (!is_numeric($_POST['maxtime']) || ($_POST['maxtime'] < 60) || ($_POST['maxtime'] <= $_POST['deftime']))) {
 		$input_errors[] = gettext("The maximum lease time must be at least 60 seconds and higher than the default lease time.");
 	}
-	if (($_POST['ddnsdomain'] && !is_domain($_POST['ddnsdomain']))) {
+	if ($_POST['ddnsupdate'] && !is_domain($_POST['ddnsdomain'])) {
 		$input_errors[] = gettext("A valid domain name must be specified for the dynamic DNS registration.");
 	}
-	if (($_POST['ddnsdomain'] && !is_ipaddrv4($_POST['ddnsdomainprimary']))) {
+	if ($_POST['ddnsupdate'] && !is_ipaddrv4($_POST['ddnsdomainprimary'])) {
 		$input_errors[] = gettext("A valid primary domain name server IP address must be specified for the dynamic domain name.");
 	}
-	if (($_POST['ddnsdomainkey'] && !$_POST['ddnsdomainkeyname']) ||
-		($_POST['ddnsdomainkeyname'] && !$_POST['ddnsdomainkey'])) {
-		$input_errors[] = gettext("Both a valid domain key and key name must be specified.");
+	if ($_POST['ddnsupdate'] && (!$_POST['ddnsdomainkeyname'] || !$_POST['ddnsdomainkeyalgorithm'] || !$_POST['ddnsdomainkey'])) {
+		$input_errors[] = gettext("A valid domain key name, algorithm and secret must be specified.");
 	}
 	if ($_POST['domainsearchlist']) {
 		$domain_array = preg_split("/[ ;]+/", $_POST['domainsearchlist']);
@@ -423,18 +411,32 @@ if (isset($_POST['save'])) {
 
 		/* If disabling DHCP Server, make sure that DHCP registration isn't enabled for DNS forwarder/resolver */
 		if (!$_POST['enable']) {
+			/* Find out how many other interfaces have DHCP enabled. */
+			$dhcp_enabled_count = 0;
+			foreach ($config['dhcpd'] as $dhif => $dhcps) {
+				if ($dhif == $if) {
+					/* Skip this interface, we only want to know how many others are enabled. */
+					continue;
+				}
+				if (isset($dhcps['enable'])) {
+					$dhcp_enabled_count++;
+				}
+			}
+
 			if (isset($config['dnsmasq']['enable']) &&
+			    ($dhcp_enabled_count == 0) &&
 			    (isset($config['dnsmasq']['regdhcp']) ||
 			    isset($config['dnsmasq']['regdhcpstatic']) ||
 			    isset($config['dnsmasq']['dhcpfirst']))) {
 				$input_errors[] = gettext(
-				    "Disable DHCP Registration features in DNS Forwarder before disabling DHCP Server.");
+				    "DHCP Registration features in the DNS Forwarder are active and require at least one enabled DHCP Server.");
 			}
 			if (isset($config['unbound']['enable']) &&
+			    ($dhcp_enabled_count == 0) &&
 			    (isset($config['unbound']['regdhcp']) ||
 			    isset($config['unbound']['regdhcpstatic']))) {
 				$input_errors[] = gettext(
-				    "Disable DHCP Registration features in DNS Resolver before disabling DHCP Server.");
+				    "DHCP Registration features in the DNS Resolver are active and require at least one enabled DHCP Server.");
 			}
 		}
 	}
@@ -494,6 +496,9 @@ if (isset($_POST['save'])) {
 			if ($act == "newpool") {
 				$dhcpdconf = array();
 			} else {
+				if (!is_array($config['dhcpd'])) {
+					$config['dhcpd']= array();
+				}
 				if (!is_array($config['dhcpd'][$if])) {
 					$config['dhcpd'][$if] = array();
 				}
@@ -507,6 +512,9 @@ if (isset($_POST['save'])) {
 				header("Location: services_dhcp.php");
 				exit;
 			}
+		}
+		if (!is_array($dhcpdconf)) {
+			$dhcpdconf = array();
 		}
 		if (!is_array($dhcpdconf['range'])) {
 			$dhcpdconf['range'] = array();
@@ -579,11 +587,13 @@ if (isset($_POST['save'])) {
 		$dhcpdconf['ddnsdomain'] = $_POST['ddnsdomain'];
 		$dhcpdconf['ddnsdomainprimary'] = $_POST['ddnsdomainprimary'];
 		$dhcpdconf['ddnsdomainkeyname'] = $_POST['ddnsdomainkeyname'];
+		$dhcpdconf['ddnsdomainkeyalgorithm'] = $_POST['ddnsdomainkeyalgorithm'];
 		$dhcpdconf['ddnsdomainkey'] = $_POST['ddnsdomainkey'];
 		$dhcpdconf['ddnsupdate'] = ($_POST['ddnsupdate']) ? true : false;
 		$dhcpdconf['ddnsforcehostname'] = ($_POST['ddnsforcehostname']) ? true : false;
 		$dhcpdconf['mac_allow'] = $_POST['mac_allow'];
 		$dhcpdconf['mac_deny'] = $_POST['mac_deny'];
+		$dhcpdconf['ddnsclientupdates'] = $_POST['ddnsclientupdates'];
 
 		unset($dhcpdconf['ntpserver']);
 		if ($_POST['ntp1']) {
@@ -920,15 +930,6 @@ $section->addInput(new Form_StaticText(
 	$rangestr
 ));
 
-if ($is_olsr_enabled) {
-	$section->addInput(new Form_Select(
-		'netmask',
-		'Subnet mask',
-		$pconfig['netmask'],
-		array_combine(range(32, 1, -1), range(32, 1, -1))
-	));
-}
-
 $group = new Form_Group('*Range');
 
 $group->add(new Form_IpAddress(
@@ -1100,8 +1101,7 @@ $section->addInput(new Form_Input(
 	'DDNS Domain',
 	'text',
 	$pconfig['ddnsdomain']
-))->setHelp('Leave blank to disable dynamic DNS registration.%1$s' .
-			'Enter the dynamic DNS domain which will be used to register client names in the DNS server.', '<br />');
+))->setHelp('Enter the dynamic DNS domain which will be used to register client names in the DNS server.');
 
 $section->addInput(new Form_Checkbox(
 	'ddnsforcehostname',
@@ -1124,12 +1124,39 @@ $section->addInput(new Form_Input(
 	$pconfig['ddnsdomainkeyname']
 ))->setHelp('Dynamic DNS domain key name which will be used to register client names in the DNS server.');
 
+$section->addInput(new Form_Select(
+	'ddnsdomainkeyalgorithm',
+	'Key algorithm',
+	$pconfig['ddnsdomainkeyalgorithm'],
+	array(
+		'hmac-md5' => 'HMAC-MD5 (legacy default)',
+		'hmac-sha1' => 'HMAC-SHA1',
+		'hmac-sha224' => 'HMAC-SHA224',
+		'hmac-sha256' => 'HMAC-SHA256 (current bind9 default)',
+		'hmac-sha384' => 'HMAC-SHA384',
+		'hmac-sha512' => 'HMAC-SHA512 (most secure)',
+	)
+));
+
 $section->addInput(new Form_Input(
 	'ddnsdomainkey',
 	'DNS Domain key secret',
 	'text',
 	$pconfig['ddnsdomainkey']
-))->setHelp('Dynamic DNS domain key secret (HMAC-MD5) which will be used to register client names in the DNS server.');
+))->setHelp('Dynamic DNS domain key secret which will be used to register client names in the DNS server.');
+
+$section->addInput(new Form_Select(
+	'ddnsclientupdates',
+	'DDNS Client Updates',
+	$pconfig['ddnsclientupdates'],
+	array(
+	    'allow' => gettext('Allow'),
+	    'deny' => gettext('Deny'),
+	    'ignore' => gettext('Ignore'))
+))->setHelp('How Forward entries are handled when client indicates they wish to update DNS.  ' .
+	    'Allow prevents DHCP from updating Forward entries, Deny indicates that DHCP will ' .
+	    'do the updates and the client should not, Ignore specifies that DHCP will do the ' .
+	    'update and the client can also attempt the update usually using a different domain name.');
 
 // Advanced MAC
 $btnadv = new Form_Button(
@@ -1318,6 +1345,7 @@ $section->addInput(new Form_StaticText(
 ));
 
 if (!$pconfig['numberoptions']) {
+	$pconfig['numberoptions'] = array();
 	$pconfig['numberoptions']['item']  = array(array('number' => '', 'type' => 'text', 'value' => ''));
 }
 
@@ -1343,8 +1371,9 @@ foreach ($pconfig['numberoptions']['item'] as $item) {
 	$group->add(new Form_Input(
 		'number' . $counter,
 		null,
-		'text',
-		$number
+		'number',
+		$number,
+		['min'=>'1', 'max'=>'254']
 	))->setHelp($numrows == $counter ? 'Number':null);
 
 
@@ -1521,8 +1550,14 @@ events.push(function() {
 		// On page load decide the initial state based on the data.
 		if (ispageload) {
 <?php
-			if (!$pconfig['ddnsupdate'] && !$pconfig['ddnsforcehostname'] && empty($pconfig['ddnsdomain']) && empty($pconfig['ddnsdomainprimary']) &&
-			    empty($pconfig['ddnsdomainkeyname']) && empty($pconfig['ddnsdomainkey'])) {
+			if (!$pconfig['ddnsupdate'] &&
+				!$pconfig['ddnsforcehostname'] &&
+				empty($pconfig['ddnsdomain']) &&
+				empty($pconfig['ddnsdomainprimary']) &&
+			    empty($pconfig['ddnsdomainkeyname']) &&
+			    (empty($pconfig['ddnsdomainkeyalgorithm']) || ($pconfig['ddnsdomainkeyalgorithm'] == "hmac-md5")) &&
+			    (empty($pconfig['ddnsclientupdates']) || ($pconfig['ddnsclientupdates'] == "allow")) &&
+			    empty($pconfig['ddnsdomainkey'])) {
 				$showadv = false;
 			} else {
 				$showadv = true;
@@ -1539,7 +1574,9 @@ events.push(function() {
 		hideCheckbox('ddnsforcehostname', !showadvdns);
 		hideInput('ddnsdomainprimary', !showadvdns);
 		hideInput('ddnsdomainkeyname', !showadvdns);
+		hideInput('ddnsdomainkeyalgorithm', !showadvdns);
 		hideInput('ddnsdomainkey', !showadvdns);
+		hideInput('ddnsclientupdates', !showadvdns);
 
 		if (showadvdns) {
 			text = "<?=gettext('Hide Advanced');?>";

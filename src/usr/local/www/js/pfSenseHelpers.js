@@ -2,7 +2,7 @@
  * pfSenseHelpers.js
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2018 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -43,6 +43,13 @@ function hideGroupInput(id, hide) {
 		$('#' + id).parent('div').addClass('hidden');
 	else
 		$('#' + id).parent('div').removeClass('hidden');
+}
+
+function invisibleGroupInput(id, hide) {
+	if (hide)
+		$('#' + id).addClass('invisible');
+	else
+		$('#' + id).removeClass('invisible');
 }
 
 // Hides the <div> in which the specified checkbox lives so that the checkbox, its label and help text are hidden
@@ -220,6 +227,12 @@ function moveHelpText(id) {
 }
 
 // Increment the number at the end of the string
+function getStringInt( str )	{
+  var data = str.match(/(\D*)(\d+)(\D*)/), newStr = "";
+  return Number( data[ 2 ] );
+}
+
+// Increment the number at the end of the string
 function bumpStringInt( str )	{
   var data = str.match(/(\D*)(\d+)(\D*)/), newStr = "";
 
@@ -272,7 +285,7 @@ function delete_row(rowDelBtn) {
 
 	// If we are deleting row zero, we need to save/restore the label
 	if ( (rowDelBtn == "deleterow0") && ((typeof retainhelp) == "undefined")) {
-		rowLabel = $('#' + rowDelBtn).parent('div').parent('div').find('label').text();
+		rowLabel = $('#' + rowDelBtn).parent('div').parent('div').find('label:first').text();
 	}
 
 	$('#' + rowDelBtn).parent('div').parent('div').remove();
@@ -281,7 +294,7 @@ function delete_row(rowDelBtn) {
 	checkLastRow();
 
 	if (rowDelBtn == "deleterow0") {
-		$('#' + rowDelBtn).parent('div').parent('div').find('label').text(rowLabel);
+		$('#' + rowDelBtn).parent('div').parent('div').find('label:first').text(rowLabel);
 	}
 }
 
@@ -293,23 +306,7 @@ function checkLastRow() {
 	}
 }
 
-function add_row() {
-	// Find the last repeatable group
-	var lastRepeatableGroup = $('.repeatable:last');
-
-	// If the number of repeats exceeds the maximum, do not add another clone
-	if ($('.repeatable').length >= lastRepeatableGroup.attr('max_repeats')) {
-		// Alert user if alert message is specified
-		if (typeof lastRepeatableGroup.attr('max_repeats_alert') !== 'undefined') {
-			alert(lastRepeatableGroup.attr('max_repeats_alert'));
-		}
-		return;
-	}
-
-	// Clone it
-	var newGroup = lastRepeatableGroup.clone();
-
-	// Increment the suffix number for each input element in the new group
+function bump_input_id(newGroup) {
 	$(newGroup).find('input').each(function() {
 		$(this).prop("id", bumpStringInt(this.id));
 		$(this).prop("name", bumpStringInt(this.name));
@@ -339,6 +336,25 @@ function add_row() {
 			}
 		}
 	});
+}
+function add_row() {
+	// Find the last repeatable group
+	var lastRepeatableGroup = $('.repeatable:last');
+
+	// If the number of repeats exceeds the maximum, do not add another clone
+	if ($('.repeatable').length >= lastRepeatableGroup.attr('max_repeats')) {
+		// Alert user if alert message is specified
+		if (typeof lastRepeatableGroup.attr('max_repeats_alert') !== 'undefined') {
+			alert(lastRepeatableGroup.attr('max_repeats_alert'));
+		}
+		return;
+	}
+
+	// Clone it
+	var newGroup = lastRepeatableGroup.clone();
+
+	// Increment the suffix number for each input element in the new group
+	bump_input_id(newGroup);
 
 	// And for "for" tags
 //	$(newGroup).find('label').attr('for', bumpStringInt($(newGroup).find('label').attr('for')));
@@ -748,38 +764,43 @@ function interceptGET() {
 	});
 }
 
-// Convert a GET argument list such as ?name=fred&action=delete into an array of POST
-// parameters such as [[name, fred],[action, delete]]
+// Convert a GET argument list such as ?name=fred&action=delete into an object of POST
+// parameters such as {name : fred, action : delete}
 function get2post(getargs) {
-	var arglist = new Array();
+	var argdict = {};
 	var argarray = getargs.split('&');
 
-	for (var i=0;i<argarray.length;i++) {
-		var thisarg = argarray[i].split('=');
-		var arg = new Array(thisarg[0], thisarg[1]);
-		arglist[i] = arg;
-	}
+	argarray.forEach(function(arg) {
+		arg = arg.split('=');
+		argdict[arg[0]] = arg[1];
+	});
 
-	return arglist;
+	return argdict;
 }
 
 // Create a form, add, the POST data and submit it
 function postSubmit(data, target) {
+	var $form = $('<form>');
 
-    var form = $(document.createElement('form'));
-
-    $(form).attr("method", "POST");
-    $(form).attr("action", target);
-
-    for (var i=0;i<data.length;i++) {
-		var input = $("<input>").attr("type", "hidden").attr("name", data[i][0]).val(data[i][1]);
-		$(form).append($(input));
+	for (var name in data) {
+		$form.append(
+			$("<input>")
+				.attr("type", "hidden")
+				.attr("name", name)
+				.val(data[name])
+		);
     }
 
-	// The CSRF magic is required because we will be viewing the results of the POST
-	var input = $("<input>").attr("type", "hidden").attr("name", "__csrf_magic").val(csrfMagicToken);
-	$(form).append($(input));
-
-    $(form).appendTo('body').submit();
+	$form
+		.attr("method", "POST")
+		.attr("action", target)
+		// The CSRF magic is required because we will be viewing the results of the POST
+		.append(
+			$("<input>")
+				.attr("type", "hidden")
+				.attr("name", "__csrf_magic")
+				.val(csrfMagicToken)
+		)
+		.appendTo('body')
+		.submit();
 }
-

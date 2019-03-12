@@ -3,7 +3,7 @@
  * system_information.widget.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2019 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2007 Scott Dale
  * All rights reserved.
  *
@@ -32,6 +32,7 @@ include_once("includes/functions.inc.php");
 
 $sysinfo_items = array(
 	'name' => gettext('Name'),
+	'user' => gettext('User'),
 	'system' => gettext('System'),
 	'bios' => gettext('BIOS'),
 	'version' => gettext('Version'),
@@ -138,6 +139,8 @@ $filesystems = get_mounted_filesystems();
 
 $skipsysinfoitems = explode(",", $user_settings['widgets'][$widgetkey]['filter']);
 $rows_displayed = false;
+// use the preference of the first thermal sensor widget, if it's available (false == empty)
+$temp_use_f = (isset($user_settings['widgets']['thermal_sensors-0']) && !empty($user_settings['widgets']['thermal_sensors-0']['thermal_sensors_widget_show_fahrenheit']));
 ?>
 
 <div class="table-responsive">
@@ -151,6 +154,14 @@ $rows_displayed = false;
 			<th><?=gettext("Name");?></th>
 			<td><?php echo htmlspecialchars($config['system']['hostname'] . "." . $config['system']['domain']); ?></td>
 		</tr>
+<?php
+	endif;
+	if (!in_array('user', $skipsysinfoitems)):
+		$rows_displayed = true;
+?>
+		<tr>
+			<th><?=gettext("User");?></th>
+			<td><?php echo htmlspecialchars(get_config_user()); ?></td>
 <?php
 	endif;
 	if (!in_array('system', $skipsysinfoitems)):
@@ -267,6 +278,15 @@ $rows_displayed = false;
 		<?php endif; ?>
 <?php
 	endif;
+	$pti = get_single_sysctl('vm.pmap.pti');
+	if (strlen($pti) > 0) {
+?>
+		<tr>
+			<th><?=gettext("Kernel PTI");?></th>
+			<td><?=($pti == 0) ? gettext("Disabled") : gettext("Enabled");?></td>
+		</tr>
+<?php
+	}
 	if (!in_array('uptime', $skipsysinfoitems)):
 		$rows_displayed = true;
 ?>
@@ -354,16 +374,16 @@ $rows_displayed = false;
 	if (!in_array('temperature', $skipsysinfoitems)):
 		$rows_displayed = true;
 ?>
-		<?php if (get_temp() != ""): ?>
+		<?php if ($temp_deg_c = get_temp()): ?>
 		<tr>
 			<th><?=gettext("Temperature");?></th>
 			<td>
-				<?php $temp_deg_c = get_temp(); ?>
+				<?php $display_temp = ($temp_use_f) ? $temp_deg_c * 1.8 + 32 : $temp_deg_c; ?>
 				<div class="progress">
-					<div id="tempPB" class="progress-bar progress-bar-striped" role="progressbar" aria-valuenow="<?=$temp_deg_c?>" aria-valuemin="0" aria-valuemax="100" style="width: <?=$temp_deg_c?>%">
+					<div id="tempPB" class="progress-bar progress-bar-striped" role="progressbar" aria-valuenow="<?=$display_temp?>" aria-valuemin="0" aria-valuemax="100" style="width: <?=$temp_use_f ? $temp_deg_c * .212 : $temp_deg_c?>%">
 					</div>
 				</div>
-				<span id="tempmeter"><?= $temp_deg_c . "&deg;C"; ?></span>
+				<span id="tempmeter" data-units="<?=$temp_use_f ? 'F' : 'C';?>"><?=$display_temp?></span>&deg;<?=$temp_use_f ? 'F' : 'C';?>
 			</td>
 		</tr>
 		<?php endif; ?>
@@ -424,7 +444,7 @@ $rows_displayed = false;
 					<div class="progress-bar progress-bar-striped" role="progressbar" aria-valuenow="<?=$swapusage?>" aria-valuemin="0" aria-valuemax="100" style="width: <?=$swapusage?>%">
 					</div>
 				</div>
-				<span><?=$swapusage?>% of <?= sprintf("%.0f", `/usr/sbin/swapinfo -m | /usr/bin/grep -v Device | /usr/bin/awk '{ print $2;}'`) ?> MiB</span>
+				<span><?=$swapusage?>% of <?= sprintf("%.0f", `/usr/sbin/swapinfo -m | /usr/bin/tail -1 | /usr/bin/awk '{ print $2;}'`) ?> MiB</span>
 			</td>
 		</tr>
 		<?php endif; ?>
@@ -608,12 +628,10 @@ function updateCPU(total, used) {
 }
 
 function updateTemp(x) {
-	if ($("#tempmeter")) {
-		$('[id="tempmeter"]').html(x + '&deg;' + 'C');
-	}
-	if ($('#tempPB')) {
-		setProgress('tempPB', parseInt(x));
-	}
+	$("#tempmeter").html(function() {
+		return this.dataset.units === "F" ? parseInt(x * 1.8 + 32, 10) : x;
+	});
+	setProgress('tempPB', parseInt(x));
 }
 
 function updateDateTime(x) {
@@ -757,6 +775,3 @@ events.push(function(){
 });
 //]]>
 </script>
-
-
-

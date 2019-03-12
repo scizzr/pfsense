@@ -3,7 +3,7 @@
  * services_router_advertisements.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2019 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2010 Seth Mos <seth.mos@dds.nl>
  * All rights reserved.
  *
@@ -39,16 +39,6 @@ if (!$g['services_dhcp_server_enable']) {
 }
 
 $if = $_REQUEST['if'];
-
-/* if OLSRD is enabled, allow WAN to house DHCP. */
-if ($config['installedpackages']['olsrd']) {
-	foreach ($config['installedpackages']['olsrd']['config'] as $olsrd) {
-		if ($olsrd['enable']) {
-			$is_olsr_enabled = true;
-			break;
-		}
-	}
-}
 
 if (!$_REQUEST['if']) {
 	$info_msg = gettext("The DHCPv6 Server can only be enabled on interfaces configured with static, non unique local IP addresses.") . "<br />" .
@@ -201,10 +191,14 @@ if ($_POST['save']) {
 		}
 	}
 	if ($_POST['raadvdefaultlifetime'] && !is_numericint($_POST['raadvdefaultlifetime'])) {
-		$input_errors[] = gettext("Router lifetime must be an integer between 1 and 9000.");
+		$input_errors[] = gettext("Router lifetime must be an integer between 0 and 9000.");
 	}
 
 	if (!$input_errors) {
+		if (!is_array($config['dhcpdv6'])) {
+			$config['dhcpdv6'] = array();
+		}
+
 		if (!is_array($config['dhcpdv6'][$if])) {
 			$config['dhcpdv6'][$if] = array();
 		}
@@ -387,7 +381,7 @@ $section->addInput(new Form_Input(
 	'Router lifetime',
 	'number',
 	$pconfig['raadvdefaultlifetime'],
-	['min' => 1, 'max' => 9000]
+	['min' => 0, 'max' => 9000]
 ))->setHelp('The lifetime associated with the default router in seconds.');
 
 $section->addInput(new Form_StaticText(

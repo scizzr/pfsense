@@ -4,7 +4,7 @@
  *
  * part of pfSense (https://www.pfsense.org)
  * Copyright (c) 2015 Warren Baker <warren@percol8.co.za>
- * Copyright (c) 2015-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2015-2019 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * originally part of m0n0wall (http://m0n0.ch/wall)
@@ -82,7 +82,7 @@ function unbound_optimization() {
 	if (is_array($config['sysctl']) && is_array($config['sysctl']['item'])) {
 		foreach ($config['sysctl']['item'] as $tunable) {
 			if ($tunable['tunable'] == 'kern.ipc.maxsockbuf') {
-				$so = floor(($tunable['value']/1024/1024)-4);
+				$so = floor((intval($tunable['value'])/1024/1024)-4);
 				// Check to ensure that the number is not a negative
 				if ($so >= 4) {
 					// Limit to 32MB, users might set maxsockbuf very high for other reasons.
@@ -108,15 +108,20 @@ function test_unbound_config($unboundcfg, &$output) {
 	global $g;
 
 	$cfgsubdir = "/test";
+	$cfgdir = "{$g['unbound_chroot_path']}{$cfgsubdir}";
+	rmdir_recursive($cfgdir);
+
 	unbound_generate_config($unboundcfg, $cfgsubdir);
 	unbound_remote_control_setup($cfgsubdir);
 	do_as_unbound_user("unbound-anchor", $cfgsubdir);
 
-	$cfgdir = "{$g['unbound_chroot_path']}{$cfgsubdir}";
-
 	$rv = 0;
-	exec("/usr/local/sbin/unbound-checkconf {$cfgdir}/unbound.conf 2>&1", $output, $rv);
-	rmdir_recursive($cfgdir);
+	exec("/usr/local/sbin/unbound-checkconf {$cfgdir}/unbound.conf 2>&1",
+	    $output, $rv);
+
+	if ($rv == 0) {
+		rmdir_recursive($cfgdir);
+	}
 
 	return $rv;
 }
@@ -165,43 +170,77 @@ function unbound_generate_config_text($unboundcfg = NULL, $cfgsubdir = "") {
 		$private_addr = <<<EOF
 # For DNS Rebinding prevention
 private-address: 10.0.0.0/8
+private-address: ::ffff:a00:0/104
 private-address: 172.16.0.0/12
+private-address: ::ffff:ac10:0/108
 private-address: 169.254.0.0/16
+private-address: ::ffff:a9fe:0/112
 private-address: 192.168.0.0/16
+private-address: ::ffff:c0a8:0/112
 private-address: fd00::/8
 private-address: fe80::/10
 EOF;
 	}
 
-	// Determine interfaces to run on
-	$bindints = "";
-	if (!empty($unboundcfg['active_interface'])) {
-		$active_interfaces = explode(",", $unboundcfg['active_interface']);
-		if (in_array("all", $active_interfaces, true)) {
-			$bindints .= "interface: 0.0.0.0\n";
-			$bindints .= "interface: ::0\n";
-			$bindints .= "interface-automatic: yes\n";
-		} else {
-			foreach ($active_interfaces as $ubif) {
-				if (is_ipaddr($ubif)) {
-					$bindints .= "interface: $ubif\n";
-				} else {
-					$intip = get_interface_ip($ubif);
-					if (is_ipaddrv4($intip)) {
-						$bindints .= "interface: $intip\n";
-					}
-					$intip = get_interface_ipv6($ubif);
-					if (is_ipaddrv6($intip)) {
-						$bindints .= "interface: $intip\n";
-					}
+	// Determine interfaces where unbound will bind
+	$tlsport = is_numeric($unboundcfg['tlsport']) ? $unboundcfg['tlsport'] : "853";
+	$bindintcfg = "";
+	$bindints = array();
+	$active_interfaces = explode(",", $unboundcfg['active_interface']);
+	if (empty($unboundcfg['active_interface']) || in_array("all", $active_interfaces, true)) {
+		$bindints[] = "0.0.0.0";
+		$bindints[] = "::0";
+		$bindintcfg .= "interface-automatic: " . (isset($unboundcfg['enablessl']) ? "no" : "yes") . "\n";
+	} else {
+		foreach ($active_interfaces as $ubif) {
+			if (is_ipaddr($ubif)) {
+				$bindints[] = $ubif;
+			} else {
+				$intip = get_interface_ip($ubif);
+				if (is_ipaddrv4($intip)) {
+					$bindints[] = $intip;
+				}
+				$intip = get_interface_ipv6($ubif);
+				if (is_ipaddrv6($intip)) {
+					$bindints[] = $intip;
 				}
 			}
 		}
-	} else {
-		$bindints .= "interface: 0.0.0.0\n";
-		$bindints .= "interface: ::0\n";
-		/* If the active interface array is empty, treat it the same as "All" as is done above. Otherwise it breaks CARP with a default config. */
-		$bindints .= "interface-automatic: yes\n";
+	}
+	foreach ($bindints as $bindint) {
+		$bindintcfg .= "interface: {$bindint}\n";
+		if (isset($unboundcfg['enablessl'])) {
+			$bindintcfg .= "interface: {$bindint}@{$tlsport}\n";
+		}
+	}
+
+	// TLS Configuration
+	$tlsconfig = "tls-cert-bundle: \"/etc/ssl/cert.pem\"\n";
+
+	if (isset($unboundcfg['enablessl'])) {
+		$tlscert_path = "{$g['unbound_chroot_path']}/sslcert.crt";
+		$tlskey_path = "{$g['unbound_chroot_path']}/sslcert.key";
+
+		// Enable SSL on the chosen or default port
+		$tlsconfig .= "tls-port: {$tlsport}\n";
+
+		// Lookup CA and Server Cert
+		$cert = lookup_cert($unboundcfg['sslcertref']);
+		$ca = ca_chain($cert);
+		$cert_chain = base64_decode($cert['crt']);
+		if (!empty($ca)) {
+			$cert_chain .= "\n" . $ca;
+		}
+
+		// Write CA and Server Cert
+		file_put_contents($tlscert_path, $cert_chain);
+		chmod($tlscert_path, 0644);
+		file_put_contents($tlskey_path, base64_decode($cert['prv']));
+		chmod($tlskey_path, 0600);
+
+		// Add config for CA and Server Cert
+		$tlsconfig .= "tls-service-pem: \"{$tlscert_path}\"\n";
+		$tlsconfig .= "tls-service-key: \"{$tlskey_path}\"\n";
 	}
 
 	// Determine interfaces to run on
@@ -246,6 +285,7 @@ EOF;
 	$port = (is_port($unboundcfg['port'])) ? $unboundcfg['port'] : "53";
 	$hide_identity = isset($unboundcfg['hideidentity']) ? "yes" : "no";
 	$hide_version = isset($unboundcfg['hideversion']) ? "yes" : "no";
+	$ipv6_allow = isset($config['system']['ipv6allow']) ? "yes" : "no";
 	$harden_dnssec_stripped = isset($unboundcfg['dnssecstripped']) ? "yes" : "no";
 	$prefetch = isset($unboundcfg['prefetch']) ? "yes" : "no";
 	$prefetch_key = isset($unboundcfg['prefetchkey']) ? "yes" : "no";
@@ -266,6 +306,15 @@ EOF;
 	$msg_cache_size = (!empty($unboundcfg['msgcachesize'])) ? $unboundcfg['msgcachesize'] : "4";
 	$verbosity = isset($unboundcfg['log_verbosity']) ? $unboundcfg['log_verbosity'] : 1;
 	$use_caps = isset($unboundcfg['use_caps']) ? "yes" : "no";
+
+	if (isset($unboundcfg['regovpnclients'])) {
+		$openvpn_clients_conf .=<<<EOD
+# OpenVPN client entries
+include: {$g['unbound_chroot_path']}{$cfgsubdir}/openvpn.*.conf
+EOD;
+	} else {
+		$openvpn_clients_conf = '';
+	}
 
 	// Set up forwarding if it is configured
 	if (isset($unboundcfg['forwarding'])) {
@@ -294,9 +343,32 @@ forward-zone:
 	name: "."
 
 EOD;
+			if (isset($unboundcfg['forward_tls_upstream'])) {
+				$forward_conf .= "\tforward-tls-upstream: yes\n";
+			}
+
+			/* Build DNS server hostname list. See https://redmine.pfsense.org/issues/8602 */
+			$dns_hostnames = array();
+			$dnshost_counter = 1;
+			while (isset($config["system"]["dns{$dnshost_counter}host"])) {
+				$pconfig_dnshost_counter = $dnshost_counter - 1;
+				if (!empty($config["system"]["dns{$dnshost_counter}host"]) &&
+				    isset($config["system"]["dnsserver"][$pconfig_dnshost_counter]))
+				$dns_hostnames[$config["system"]["dnsserver"][$pconfig_dnshost_counter]] = $config["system"]["dns{$dnshost_counter}host"];
+				$dnshost_counter++;
+			}
+
 			foreach ($dnsservers as $dnsserver) {
+				$fwdport = "";
+				$fwdhost = "";
 				if (is_ipaddr($dnsserver) && !ip_in_subnet($dnsserver, "127.0.0.0/8")) {
-					$forward_conf .= "\tforward-addr: $dnsserver\n";
+					if (isset($unboundcfg['forward_tls_upstream'])) {
+						$fwdport = "@853";
+						if (array_key_exists($dnsserver, $dns_hostnames)) {
+							$fwdhost = "#{$dns_hostnames[$dnsserver]}";
+						}
+					}
+					$forward_conf .= "\tforward-addr: {$dnsserver}{$fwdport}{$fwdhost}\n";
 				}
 			}
 		}
@@ -306,6 +378,18 @@ EOD;
 
 	// Size of the RRset cache == 2 * msg-cache-size per Unbound's recommendations
 	$rrset_cache_size = $msg_cache_size * 2;
+
+	/* QNAME Minimization. https://redmine.pfsense.org/issues/8028
+	 * Unbound uses the British style in the option name so the internal option
+	 * name follows that, but the user-visible descriptions follow US English.
+	 */
+	$qname_min = "";
+	if (isset($unboundcfg['qname-minimisation'])) {
+		$qname_min = "qname-minimisation: yes\n";
+		if (isset($unboundcfg['qname-minimisation-strict'])) {
+			$qname_min .= "qname-minimisation-strict: yes\n";
+		}
+	}
 
 	$unboundconf = <<<EOD
 ##########################
@@ -328,7 +412,7 @@ hide-identity: {$hide_identity}
 hide-version: {$hide_version}
 harden-glue: yes
 do-ip4: yes
-do-ip6: yes
+do-ip6: {$ipv6_allow}
 do-udp: yes
 do-tcp: yes
 do-daemonize: yes
@@ -346,7 +430,7 @@ cache-min-ttl: {$cache_min_ttl}
 harden-dnssec-stripped: {$harden_dnssec_stripped}
 msg-cache-size: {$msg_cache_size}m
 rrset-cache-size: {$rrset_cache_size}m
-
+{$qname_min}
 {$optimization['number_threads']}
 {$optimization['msg_cache_slabs']}
 {$optimization['rrset_cache_slabs']}
@@ -361,10 +445,11 @@ use-caps-for-id: {$use_caps}
 serve-expired: {$dns_record_cache}
 # Statistics
 {$statistics}
+# TLS Configuration
+{$tlsconfig}
 # Interface IP(s) to bind to
-{$bindints}
+{$bindintcfg}
 {$outgoingints}
-
 # DNS Rebinding
 {$private_addr}
 {$private_domains}
@@ -377,6 +462,8 @@ include: {$g['unbound_chroot_path']}{$cfgsubdir}/host_entries.conf
 
 # dhcp lease entries
 include: {$g['unbound_chroot_path']}{$cfgsubdir}/dhcpleases_entries.conf
+
+{$openvpn_clients_conf}
 
 # Domain overrides
 include: {$g['unbound_chroot_path']}{$cfgsubdir}/domainoverrides.conf
@@ -485,7 +572,7 @@ function do_as_unbound_user($cmd, $param1 = "") {
 			mwexec("echo '/usr/local/sbin/unbound-anchor -a {$root_key_file}' | /usr/bin/su -m unbound", true);
 			// Only sync the file if this is the real (default) one, not a test one.
 			if ($param1 == "") {
-				pfSense_fsync($root_key_file);
+				//pfSense_fsync($root_key_file);
 			}
 			break;
 		case "unbound-control-setup":
@@ -503,12 +590,19 @@ function unbound_add_domain_overrides($pvt_rev="", $cfgsubdir = "") {
 
 	$sorted_domains = msort($domains, "domain");
 	$result = array();
+	$tls_domains = array();
+	$tls_hostnames = array();
 	foreach ($sorted_domains as $domain) {
 		$domain_key = current($domain);
 		if (!isset($result[$domain_key])) {
 			$result[$domain_key] = array();
 		}
 		$result[$domain_key][] = $domain['ip'];
+		/* If any entry for a domain has TLS set, it will be active for all entries. */
+		if (isset($domain['forward_tls_upstream'])) {
+			$tls_domains[] = $domain_key;
+			$tls_hostnames[$domain['ip']] = $domain['tls_hostname'];
+		}
 	}
 
 	// Domain overrides that have multiple entries need multiple stub-addr: added
@@ -522,10 +616,25 @@ function unbound_add_domain_overrides($pvt_rev="", $cfgsubdir = "") {
 				$domain_entries .= "local-zone: \"$domain\" typetransparent\n";
 			}
 		} else {
+			$use_tls = in_array($domain, $tls_domains);
 			$domain_entries .= "forward-zone:\n";
 			$domain_entries .= "\tname: \"$domain\"\n";
+			$fwdport = "";
+			/* Enable TLS forwarding for this domain if needed. */
+			if ($use_tls) {
+				$domain_entries .= "\tforward-tls-upstream: yes\n";
+				$fwdport = "@853";
+			}
 			foreach ($ips as $ip) {
-				$domain_entries .= "\tforward-addr: $ip\n";
+				$fwdhost = "";
+				/* If an IP address already contains a port specification, do not add another. */
+				if (strstr($ip, '@') !== false) {
+					$fwdport = "";
+				}
+				if ($use_tls && array_key_exists($ip, $tls_hostnames)) {
+					$fwdhost = "#{$tls_hostnames[$ip]}";
+				}
+				$domain_entries .= "\tforward-addr: {$ip}{$fwdport}{$fwdhost}\n";
 			}
 		}
 	}
@@ -716,7 +825,6 @@ function unbound_acls_config($cfgsubdir = "") {
 			$active_interfaces = get_configured_interface_with_descr();
 		}
 
-		$bindints = "";
 		foreach ($active_interfaces as $ubif => $ifdesc) {
 			$ifip = get_interface_ip($ubif);
 			if (is_ipaddrv4($ifip)) {

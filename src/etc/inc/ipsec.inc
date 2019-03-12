@@ -4,7 +4,7 @@
  *
  * part of pfSense (https://www.pfsense.org)
  * Copyright (c) 2008 Shrew Soft Inc.
- * Copyright (c) 2007-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2007-2019 Rubicon Communications, LLC (Netgate)
  * All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -69,6 +69,21 @@ $ipsec_log_cats = array(
 	"tls" => gettext("TLS handler"),
 	"esp" => gettext("IPsec traffic"),
 	"lib" => gettext("StrongSwan Lib")
+);
+
+global $ipsec_identifier_list;
+$ipsec_identifier_list = array(
+	// 'ipv4' => array('desc' => gettext('IPv4 address'), 'mobile' => true),
+	// 'ipv6' => array('desc' => gettext('IPv6 address'), 'mobile' => true),
+	// 'rfc822' => array('desc' => gettext('RFC822'), 'mobile' => true),
+	'none' => array('desc' => '', 'mobile' => true),
+	'email' => array('desc' => gettext('E-mail address'), 'mobile' => true),
+	'userfqdn' => array('desc' => gettext('User Fully Qualified Domain Name'), 'mobile' => true)
+	// 'fqdn' => array('desc' => gettext('Fully Qualified Domain Name'), 'mobile' => true),
+	// 'dns' => array('desc' => gettext('DNS'), 'mobile' => true),
+	// 'asn1dn' => array('desc' => gettext('ASN.1 Distinguished Name'), 'mobile' => true),
+	// 'asn1gn' => array('desc' => gettext('ASN.1 GN'), 'mobile' => true),
+	// 'keyid' => array('desc' => gettext('KeyID'), 'mobile' => true)
 );
 
 global $my_identifier_list;
@@ -183,7 +198,8 @@ global $p2_modes;
 $p2_modes = array(
 	'tunnel' => gettext('Tunnel IPv4'),
 	'tunnel6' => gettext('Tunnel IPv6'),
-	'transport' => gettext('Transport')
+	'transport' => gettext('Transport'),
+	'vti' => gettext('Routed (VTI)')
 );
 
 global $p2_protos;
@@ -277,10 +293,21 @@ function ipsec_get_phase1_src(& $ph1ent) {
 	} else {
 		$if = "wan";
 	}
+	$ip6 = get_interface_ipv6($if);
+	$ip4 = get_interface_ip($if);
 	if ($ph1ent['protocol'] == "inet6") {
-		$interfaceip = get_interface_ipv6($if);
-	} else {
-		$interfaceip = get_interface_ip($if);
+		$interfaceip = $ip6;
+	} elseif ($ph1ent['protocol'] == "inet") {
+		$interfaceip = $ip4;
+	} elseif ($ph1ent['protocol'] == "both") {
+		$ifips = array();
+		if (!empty($ip4)) {
+			$ifips[] = $ip4;
+		}
+		if (!empty($ip6)) {
+			$ifips[] = $ip6;
+		}
+		$interfaceip = implode(',', $ifips);
 	}
 
 	return $interfaceip;
@@ -732,6 +759,9 @@ function ipsec_find_id(& $ph1ent, $side = "local", $rgmap = array()) {
 		if (!$addr) {
 			return array();
 		}
+		/* When automatically guessing, use the first address. */
+		$addr = explode(',', $addr);
+		$addr = $addr[0];
 	} elseif ($side == "peer") {
 		$id_type = $ph1ent['peerid_type'];
 		$id_data = $ph1ent['peerid_data'];
@@ -839,4 +869,32 @@ function ipsec_get_loglevels() {
 	}
 	return $levels;
 }
+
+function ipsec_vti($ph1ent, $returnaddresses = false) {
+	global $config;
+	if (empty($ph1ent) || !is_array($ph1ent) || !is_array($config['ipsec']['phase2'])) {
+		return false;
+	}
+
+	$is_vti = false;
+	$vtisubnet_spec = array();
+
+	foreach ($config['ipsec']['phase2'] as $ph2ent) {
+		if ($ph1ent['ikeid'] != $ph2ent['ikeid']) {
+			continue;
+		}
+		if ($ph2ent['mode'] == 'vti') {
+			if ($returnaddresses) {
+				$vtisubnet_spec[] = array(
+					'left' => ipsec_idinfo_to_cidr($ph2ent['localid'], true, $ph2ent['mode']),
+					'right' => ipsec_idinfo_to_cidr($ph2ent['remoteid'], false, $ph2ent['mode']),
+					'descr' => $ph2ent['descr'],
+				);
+			}
+			$is_vti = true;
+		}
+	}
+	return ($returnaddresses) ? $vtisubnet_spec : $is_vti;
+}
+
 ?>

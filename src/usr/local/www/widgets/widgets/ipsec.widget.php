@@ -3,7 +3,7 @@
  * ipsec.widget.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2019 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2004-2005 T. Lechat <dev@lechat.org> (BSD 2 clause)
  * Copyright (c) 2007 Jonathan Watt <jwatt@jwatt.org> (BSD 2 clause)
  * Copyright (c) 2007 Scott Dale (BSD 2 clause)
@@ -26,9 +26,7 @@
  * limitations under the License.
  */
 
-$nocsrf = true;
-
-require_once("guiconfig.inc");
+require_once("auth_check.inc");
 require_once("functions.inc");
 require_once("ipsec.inc");
 
@@ -74,7 +72,7 @@ if ($_REQUEST && $_REQUEST['ajax']) {
 						continue;
 					}
 
-					$ikeid = "con{$ph1ent['ikeid']}";
+					$ikeid = "con{$ph1ent['ikeid']}000";
 					$ikenum[$ph1ent['ikeid']] = true;
 				}
 

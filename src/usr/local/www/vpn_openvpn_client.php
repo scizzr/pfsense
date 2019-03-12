@@ -3,7 +3,7 @@
  * vpn_openvpn_client.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2019 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2008 Shrew Soft Inc.
  * All rights reserved.
  *
@@ -34,29 +34,17 @@ require_once("pkg-utils.inc");
 
 global $openvpn_topologies, $openvpn_tls_modes;
 
-if (!is_array($config['openvpn']['openvpn-client'])) {
-	$config['openvpn']['openvpn-client'] = array();
-}
-
+init_config_arr(array('openvpn', 'openvpn-client'));
 $a_client = &$config['openvpn']['openvpn-client'];
 
-if (!is_array($config['ca'])) {
-	$config['ca'] = array();
-}
+init_config_arr(array('ca'));
+$a_ca = &$config['ca'];
 
-$a_ca =& $config['ca'];
+init_config_arr(array('cert'));
+$a_cert = &$config['cert'];
 
-if (!is_array($config['cert'])) {
-	$config['cert'] = array();
-}
-
-$a_cert =& $config['cert'];
-
-if (!is_array($config['crl'])) {
-	$config['crl'] = array();
-}
-
-$a_crl =& $config['crl'];
+init_config_arr(array('crl'));
+$a_crl = &$config['crl'];
 
 if (isset($_REQUEST['id']) && is_numericint($_REQUEST['id'])) {
 	$id = $_REQUEST['id'];
@@ -89,15 +77,15 @@ if ($_POST['act'] == "del") {
 
 if ($act == "new") {
 	$pconfig['ncp_enable'] = "enabled";
-	$pconfig['ncp-ciphers'] = "AES-256-GCM,AES-128-GCM";
+	$pconfig['ncp-ciphers'] = "AES-128-GCM";
 	$pconfig['autokey_enable'] = "yes";
 	$pconfig['tlsauth_enable'] = "yes";
 	$pconfig['autotls_enable'] = "yes";
 	$pconfig['interface'] = "wan";
 	$pconfig['server_port'] = 1194;
 	$pconfig['verbosity_level'] = 1; // Default verbosity is 1
-	// OpenVPN Defaults to SHA1
-	$pconfig['digest'] = "SHA1";
+	$pconfig['digest'] = "SHA256";
+	$pconfig['compression'] = "none";
 }
 
 global $simplefields;
@@ -130,7 +118,7 @@ if ($act == "edit") {
 		if (isset($a_client[$id]['ncp-ciphers'])) {
 			$pconfig['ncp-ciphers'] = $a_client[$id]['ncp-ciphers'];
 		} else {
-			$pconfig['ncp-ciphers'] = "AES-256-GCM,AES-128-GCM";
+			$pconfig['ncp-ciphers'] = "AES-128-GCM";
 		}
 		if (isset($a_client[$id]['ncp_enable'])) {
 			$pconfig['ncp_enable'] = $a_client[$id]['ncp_enable'];
@@ -152,8 +140,7 @@ if ($act == "edit") {
 			$pconfig['shared_key'] = base64_decode($a_client[$id]['shared_key']);
 		}
 		$pconfig['crypto'] = $a_client[$id]['crypto'];
-		// OpenVPN Defaults to SHA1 if unset
-		$pconfig['digest'] = !empty($a_client[$id]['digest']) ? $a_client[$id]['digest'] : "SHA1";
+		$pconfig['digest'] = !empty($a_client[$id]['digest']) ? $a_client[$id]['digest'] : "SHA256";
 		$pconfig['engine'] = $a_client[$id]['engine'];
 
 		$pconfig['tunnel_network'] = $a_client[$id]['tunnel_network'];
@@ -174,6 +161,11 @@ if ($act == "edit") {
 
 		$pconfig['route_no_pull'] = $a_client[$id]['route_no_pull'];
 		$pconfig['route_no_exec'] = $a_client[$id]['route_no_exec'];
+		if (isset($a_client[$id]['create_gw'])) {
+			$pconfig['create_gw'] = $a_client[$id]['create_gw'];
+		} else {
+			$pconfig['create_gw'] = "both"; // v4only, v6only, or both (default: both)
+		}
 		if (isset($a_client[$id]['verbosity_level'])) {
 			$pconfig['verbosity_level'] = $a_client[$id]['verbosity_level'];
 		} else {
@@ -446,6 +438,7 @@ if ($_POST['save']) {
 		$client['route_no_pull'] = $pconfig['route_no_pull'];
 		$client['route_no_exec'] = $pconfig['route_no_exec'];
 		$client['verbosity_level'] = $pconfig['verbosity_level'];
+		$client['create_gw'] = $pconfig['create_gw'];
 
 		if (!empty($pconfig['ncp-ciphers'])) {
 			$client['ncp-ciphers'] = implode(",", $pconfig['ncp-ciphers']);
@@ -578,7 +571,7 @@ if ($act=="new" || $act=="edit"):
 	$section->addInput(new Form_Input(
 		'proxy_port',
 		'Proxy port',
-		number,
+		'number',
 		$pconfig['proxy_port']
 	));
 
@@ -787,7 +780,7 @@ if ($act=="new" || $act=="edit"):
 		openvpn_get_digestlist()
 		))->setHelp('The algorithm used to authenticate data channel packets, and control channel packets if a TLS Key is present.%1$s' .
 		    'When an AEAD Encryption Algorithm mode is used, such as AES-GCM, this digest is used for the control channel only, not the data channel.%1$s' .
-		    'Leave this set to SHA1 unless the server uses a different value. SHA1 is the default for OpenVPN. ', '<br />');
+		    'Set this to the same value as the server. While SHA1 is the default for OpenVPN, this algorithm is insecure. ', '<br />');
 
 	$section->addInput(new Form_Select(
 		'engine',
@@ -851,7 +844,14 @@ if ($act=="new" || $act=="edit"):
 		'Compression',
 		$pconfig['compression'],
 		$openvpn_compression_modes
-	))->setHelp('Compress tunnel packets using the LZO algorithm. Adaptive compression will dynamically disable compression for a period of time if OpenVPN detects that the data in the packets is not being compressed efficiently.');
+	))->setHelp('Compress tunnel packets using the LZO algorithm. %1$s' .
+				'Compression can potentially increase throughput but may allow an attacker to extract secrets if they can control ' .
+				'compressed plaintext traversing the VPN (e.g. HTTP). ' .
+				'Before enabling compression, consult information about the VORACLE, CRIME, TIME, and BREACH attacks against TLS ' .
+				'to decide if the use case for this specific VPN is vulnerable to attack. %1$s%1$s' .
+				'Adaptive compression will dynamically disable compression for a period of time if OpenVPN detects that the data in the ' .
+				'packets is not being compressed efficiently.',
+				'<br/>');
 
 	$section->addInput(new Form_Select(
 		'topology',
@@ -910,6 +910,37 @@ if ($act=="new" || $act=="edit"):
 				'Finding the best buffer size can take some experimentation. To test the best value for a site, start at ' .
 				'512KiB and test higher and lower values.');
 
+	$group = new Form_Group('Gateway creation');
+	$group->add(new Form_Checkbox(
+		'create_gw',
+		null,
+		'Both',
+		($pconfig['create_gw'] == "both"),
+		'both'
+	))->displayAsRadio();
+
+	$group->add(new Form_Checkbox(
+		'create_gw',
+		null,
+		'IPv4 only',
+		($pconfig['create_gw'] == "v4only"),
+		'v4only'
+	))->displayAsRadio();
+
+	$group->add(new Form_Checkbox(
+		'create_gw',
+		null,
+		'IPv6 only',
+		($pconfig['create_gw'] == "v6only"),
+		'v6only'
+	))->displayAsRadio();
+
+	$group->setHelp('If you assign a virtual interface to this OpenVPN client, ' .
+		'this setting controls which gateway types will be created. The default ' .
+		'setting is \'both\'.');
+
+	$section->add($group);
+
 	$section->addInput(new Form_Select(
 		'verbosity_level',
 		'Verbosity level',
@@ -947,6 +978,7 @@ else:
 		<table class="table table-striped table-hover table-condensed sortable-theme-bootstrap table-rowdblclickedit" data-sortable>
 			<thead>
 				<tr>
+					<th><?=gettext("Interface")?></th>
 					<th><?=gettext("Protocol")?></th>
 					<th><?=gettext("Server")?></th>
 					<th><?=gettext("Description")?></th>
@@ -961,6 +993,9 @@ else:
 		$server = "{$client['server_addr']}:{$client['server_port']}";
 ?>
 				<tr <?=isset($client['disable']) ? 'class="disabled"':''?>>
+					<td>
+						<?=convert_openvpn_interface_to_friendly_descr($client['interface'])?>
+					</td>
 					<td>
 						<?=htmlspecialchars($client['protocol'])?>
 					</td>

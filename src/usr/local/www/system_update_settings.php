@@ -3,7 +3,7 @@
  * system_update_settings.php
  *
  * part of pfSense (https://www.pfsense.org)
- * Copyright (c) 2004-2016 Rubicon Communications, LLC (Netgate)
+ * Copyright (c) 2004-2019 Rubicon Communications, LLC (Netgate)
  * Copyright (c) 2005 Colin Smith
  * All rights reserved.
  *
@@ -34,12 +34,14 @@ $repos = pkg_list_repos();
 
 if ($_POST) {
 
+	init_config_arr(array('system', 'firmware'));
 	if ($_POST['disablecheck'] == "yes") {
 		$config['system']['firmware']['disablecheck'] = true;
 	} elseif (isset($config['system']['firmware']['disablecheck'])) {
 		unset($config['system']['firmware']['disablecheck']);
 	}
 
+	init_config_arr(array('system', 'gitsync'));
 	if ($_POST['synconupgrade'] == "yes") {
 		$config['system']['gitsync']['synconupgrade'] = true;
 	} elseif (isset($config['system']['gitsync']['synconupgrade'])) {
@@ -87,6 +89,12 @@ if ($_POST) {
 		unset($config['system']['gitsync']['dryrun']);
 	}
 
+	if (empty($config['system']['firmware'])) {
+		unset($config['system']['firmware']);
+	}
+	if (empty($config['system']['gitsync'])) {
+		unset($config['system']['gitsync']);
+	}
 	write_config(gettext("Saved system update settings."));
 
 	$savemsg = gettext("Changes have been saved successfully");
@@ -97,32 +105,6 @@ $gitcfg = $config['system']['gitsync'];
 
 $pgtitle = array(gettext("System"), gettext("Update"), gettext("Update Settings"));
 $pglinks = array("", "pkg_mgr_install.php?id=firmware", "@self");
-
-// Create an array of repo names and descriptions to populate the "Branch" selector
-function build_repo_list() {
-	global $repos;
-
-	$list = array();
-
-	foreach ($repos as $repo) {
-		$list[$repo['name']] = $repo['descr'];
-	}
-
-	return($list);
-}
-
-function get_repo_name($path) {
-	global $repos;
-
-	foreach ($repos as $repo) {
-		if ($repo['path'] == $path) {
-			return $repo['name'];
-		}
-	}
-
-	/* Default */
-	return $repos[0]['name'];
-}
 
 include("head.inc");
 
@@ -144,7 +126,6 @@ display_top_tabs($tab_array);
 update_repos();
 $repopath = "/usr/local/share/{$g['product_name']}/pkg/repos";
 $helpfilename = "{$repopath}/{$g['product_name']}-repo-custom.help";
-$repos = pkg_list_repos();
 
 $form = new Form();
 
@@ -153,8 +134,8 @@ $section = new Form_Section('Firmware Branch');
 $field = new Form_Select(
 	'fwbranch',
 	'*Branch',
-	get_repo_name($config['system']['pkg_repo_conf_path']),
-	build_repo_list()
+	pkg_get_repo_name($config['system']['pkg_repo_conf_path']),
+	pkg_build_repo_list()
 );
 
 if (file_exists($helpfilename)) {
